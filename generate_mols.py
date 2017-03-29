@@ -45,6 +45,23 @@ def get_energies(filename):
 
     return energies
 
+def get_shieldings(filename):
+    """ Returns a dictionary with nmr shieldings for each xyz-file.
+    """
+
+    f = open(filename, "r")
+    lines = f.readlines()
+    f.close()
+
+    shieldings = dict()
+
+    for line in lines:
+        xyz_name = line[:8]
+        shielding = eval(line[8:])
+
+        shieldings[xyz_name] = shielding
+
+    return shieldings
 
 if __name__ == "__main__":
 
@@ -54,7 +71,7 @@ if __name__ == "__main__":
     # Generate a list of fml.Molecule() objects
     energy_mols = []
 
-    for xyz_file in sorted(data.keys()): 
+    for xyz_file in sorted(data.keys()):
 
         print xyz_file, data[xyz_file]
 
@@ -72,5 +89,33 @@ if __name__ == "__main__":
     # Save molecules as cPickle
     with open(pickle_filename, "wb") as f:
         cPickle.dump(energy_mols, f, protocol=2)
+
+    print "Wrote", pickle_filename
+
+
+    # Parse file containing PBE0/def2-TZVP shieldings and xyz filenames
+    data = get_shieldings("nmr_qm7.txt")
+
+    # Generate a list of fml.Molecule() objects
+    shielding_mols = []
+
+    for xyz_file in sorted(data.keys()):
+
+        print xyz_file, data[xyz_file]
+
+        # Initialize the fml.Molecule() objects
+        mol = fml.Molecule()
+        mol.read_xyz("qm7_xyz/" + xyz_file)
+
+        # Associate a property (NMR shieldings) with the object
+        mol.properties = data[xyz_file]
+
+        shielding_mols.append(mol)
+
+    pickle_filename = "mols_nmr.cpickle"
+
+    # Save molecules as cPickle
+    with open(pickle_filename, "wb") as f:
+        cPickle.dump(shielding_mols, f, protocol=2)
 
     print "Wrote", pickle_filename

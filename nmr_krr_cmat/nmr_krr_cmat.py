@@ -29,21 +29,22 @@ import time
 import cPickle
 import numpy as np
 import fml
-from fml.kernels import laplacian_kernel
-from fml.math import cho_solve
+from fml.kernels import gaussian_kernel
+from fml.math import cho_solve, l2_distance
 
 if __name__ == "__main__":
 
     # Load molecules from cpickle
-    pickle_filename = "../mols_hof.cpickle"
+    pickle_filename = "../mols_nmr.cpickle"
     with open(pickle_filename, "rb") as f:
         mols = cPickle.load(f)
 
     # Generate descriptor for each molecule
     for mol in mols:
 
-        # This is a Molecular Coulomb matrix sorted by row norm
-        mol.generate_coulomb_matrix()
+        # This is a list of Coulomb matrices sorted by distance
+        # to each query atom.
+        mol.generate_atomic_coulomb_matrix()
 
     # Shuffle molecules
     np.random.seed(666)
@@ -51,22 +52,27 @@ if __name__ == "__main__":
 
     # Make training and test sets
     n_test  = 1000
-    n_train = 1000
+    n_train = 4000
     
-    training = mols[:n_train]
-    test  = mols[-n_test:]
+    Xall = []
+    Yall = []
 
-    # List of descriptors for training set -- note transposed, because quirk
-    X  = np.array([mol.coulomb_matrix for mol in training]).T
+    target_type = "H"
 
-    # List of properties for training set
-    Y = np.array([mol.properties for mol in training])
+    for mol in mols:
+        for i, atomtype in enumerate(mol.atomtypes):
+            if atomtype == target_type:
+                Xall.append(mol.atomic_coulomb_matrix[i])
+                Yall.append(mol.properties[i])
 
-    # List of descriptors for test set -- note transposed, because quirk
-    Xs = np.array([mol.coulomb_matrix for mol in test]).T
+    # Vectors of descriptors for training and test sets - note transposed
+    # for enhanced speed in kernel evaluation
+    X = np.array(Xall[:n_train]).T
+    Xs = np.array(Xall[-n_test:]).T
 
-    # List of properties for test set
-    Ys = np.array([mol.properties for mol in test])
+    # Vectors of properties for training and test sets
+    Y = np.array(Yall[:n_train])
+    Ys = np.array(Yall[-n_test:])
 
     # Set hyper-parameters
     sigma = 10**(4.2)
@@ -76,10 +82,19 @@ if __name__ == "__main__":
     print(u"Calculating: K\u1D62\u2C7C = k(q\u1D62, q\u2C7C)          ... ", end="")
     sys.stdout.flush() 
     start = time.time()
-    K = laplacian_kernel(X, X, sigma)
+
+    # Gaussian kernel usually better for atomic properties
+    # K = gaussian_kernel(X, X, sigma)
+
+    # Alternatively, just calculate the L2 distance, and convert
+    # to kernel matrix (e.g. for multiple sigmas, etc):
+    D = l2_distance(X,X)
+    D /= -2.0 * sigma * sigma
+    D = np.exp(K)
+
     print ("%7.2f seconds" % (time.time() - start) )
 
-    for i in xrange(len(training)):
+    for i in xrange(n_train):
         K[i,i] += llambda
 
     print( u"Calculating: \u03B1 = (K + \u03BBI)\u207B\u00B9 y         ... ", end="")
@@ -91,7 +106,7 @@ if __name__ == "__main__":
     print(u"Calculating: K*\u1D62\u2C7C = k(q\u1D62, q*\u2C7C)        ... ", end="")
     sys.stdout.flush()
     start = time.time()
-    Ks = laplacian_kernel(X, Xs, sigma)
+    Ks = gaussian_kernel(X, Xs, sigma)
     print ("%7.2f seconds" % (time.time() - start) )
 
 
@@ -102,4 +117,4 @@ if __name__ == "__main__":
     print ("%7.2f seconds" % (time.time() - start) )
     
     rmsd = np.sqrt(np.mean(np.square(Ys - Y_tilde)))
-    print("RMSD = %6.2f kcal/mol" % rmsd)
+    print("RMSD = %6.2f ppm" % rmsd)
